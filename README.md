@@ -2,6 +2,16 @@
 
 以 Google Opal 的視覺化工作流程為靈感的繁體中文圖文工具。0.2 版加入真正的 Gemini 執行端、Google 登入與 Google Drive 存檔程式。**尚未取得使用者的 Google 設定與金鑰；真實 Google 帳號、額度、模型可用性與雲端寫入需在設定完成後驗證。**
 
+## 個人零預算試用版
+
+預設不呼叫外部 AI，即使伺服器已有金鑰也不會自動啟用。可直接編輯節點、套用範本、示範執行、匯入匯出流程、下載文案與製作本機文字圖卡；不需要 Google 登入。示範不會生成真正的 AI 內容。
+
+真正生成文字前，請自行在 Google 確認專案未啟用付費，且選用模型仍有免費額度；本程式不能查核帳務或保證模型免費。僅在確認後設定 `AI_ENABLED=true` 與伺服器金鑰。圖片呼叫預設封鎖，另需明確設定 `AI_IMAGES_ENABLED=true`。不會自動換模型或重試。
+
+`AI_CALL_LIMIT=20` 限制每次伺服器啟動最多發送 20 次模型請求，包含規劃、各個生成步驟與失敗請求；重啟歸零，多個伺服器各自計算。這是個人試用的呼叫限制，不是月額度或費用上限。任何流程若中途達上限會停止，不會自動重試。
+
+網站每次重新整理預設回到示範模式；連線設定顯示本次啟動呼叫次數。此版本供個人私下試用。主機或 Codespaces 可能另有費用，優先在自己的電腦執行，不需申辦主機。Google 登入與 Drive 都是選用。
+
 ## 開始使用
 
 需要 Node.js 22.16 或以上（建議 24）。
@@ -24,7 +34,7 @@ npm run dev -- --port 5173
 ## 啟用 Gemini（真正產生內容）
 
 1. 在 [Google AI Studio](https://aistudio.google.com/apikey) 建立 API 金鑰，確認帳號地區、模型權限、額度及計費需求。圖片生成的可用性與計費依 Google 帳號與方案而定。
-2. 在 **Codespaces 的專案根目錄**建立 `.env.local`，參照 `.env.example` 填寫 `GEMINI_API_KEY`。也可使用 Codespaces secrets 注入同名伺服器環境變數。
+2. 在 **Codespaces 的專案根目錄**建立 `.env.local`，參照 `.env.example` 填寫 `GEMINI_API_KEY`，確認免費方案後才設定 `AI_ENABLED=true`。也可使用 Codespaces secrets 注入同名伺服器環境變數。
 3. 若預設模型不可用，透過 `GEMINI_TEXT_MODEL`、`GEMINI_IMAGE_MODEL` 選擇帳號可用的相容模型。預設為 `gemini-2.5-flash` 與 `gemini-2.5-flash-image`。
 4. 重啟伺服器。網站「連線設定」會顯示金鑰是否已設定。這只代表設定存在，不表示帳號、模型和額度已驗證；必須成功執行一次文案／圖片流程才算驗證。
 
