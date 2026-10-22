@@ -1,37 +1,73 @@
 # Bloom / OpalPlus
 
-以 Google Opal 的視覺化工作流程概念為靈感的繁體中文網站原型。使用獨立的 Bloom 品牌與介面設計。
+以 Google Opal 的視覺化工作流程為靈感的繁體中文圖文工具。0.2 版加入真正的 Gemini 執行端、Google 登入與 Google Drive 存檔程式。**尚未取得使用者的 Google 設定與金鑰；真實 Google 帳號、額度、模型可用性與雲端寫入需在設定完成後驗證。**
 
-## 開始開發
+## 開始使用
 
-需要 Node.js 22 或以上。
+需要 Node.js 22.16 或以上（建議 24）。
 
 ```sh
-npm ci --cache /tmp/opalplus-npm-cache
+npm ci
 npm run dev -- --port 5173
 ```
 
+Codespaces：保持 5173 連接埠為私人，在「連接埠」開啟網站。更新已有網站時，先在執行伺服器的終端機按 Ctrl+C，再執行：
+
 ```sh
-npm run build
-npm test
-npm run test:e2e
+git pull origin main
+npm ci
+npm run dev -- --port 5173
 ```
 
-端對端測試使用本環境的 `/usr/bin/chromium`。其他電腦請在 `playwright.config.js` 調整 Chromium 路徑，或安裝 Playwright 瀏覽器後移除 `executablePath`。
+不設定任何憑證也能使用示範執行、編輯、參考圖上傳、文案／圖片複製、下載與文字圖卡。示範執行只呈現輸入與指令，絕不冒充模型回應。
 
-## 已有功能
+## 啟用 Gemini（真正產生內容）
 
-- 可拖曳、編輯的輸入、生成、輸出節點，依陣列編號順序串接，連線隨位置更新。
-- 新增與刪除生成步驟、縮放畫布、修改流程名稱。
-- 社群文案、旅行規劃、學習計畫三種範本。
-- 依輸入主題選用範本、工具預覽、示範執行結果及複製結果。
-- 瀏覽器 localStorage 自動儲存工作流程，以及 JSON 匯入、匯出。
-- 桌面與手機版；手機畫布可捲動，節點可拖曳與點擊編輯。
+1. 在 [Google AI Studio](https://aistudio.google.com/apikey) 建立 API 金鑰，確認帳號地區、模型權限、額度及計費需求。圖片生成的可用性與計費依 Google 帳號與方案而定。
+2. 在 **Codespaces 的專案根目錄**建立 `.env.local`，參照 `.env.example` 填寫 `GEMINI_API_KEY`。也可使用 Codespaces secrets 注入同名伺服器環境變數。
+3. 若預設模型不可用，透過 `GEMINI_TEXT_MODEL`、`GEMINI_IMAGE_MODEL` 選擇帳號可用的相容模型。預設為 `gemini-2.5-flash` 與 `gemini-2.5-flash-image`。
+4. 重啟伺服器。網站「連線設定」會顯示金鑰是否已設定。這只代表設定存在，不表示帳號、模型和額度已驗證；必須成功執行一次文案／圖片流程才算驗證。
 
-## 原型範圍
+金鑰僅用於伺服器對 `generativelanguage.googleapis.com` 的請求。不使用 `VITE_` 前綴，不存於瀏覽器或匯出流程，不要將實際金鑰貼入聊天、Git 或前端程式碼。`.env*` 已加入 Git 忽略規則（範例除外）。
 
-目前沒有連接 AI 模型。文字建立流程依關鍵字選用範本；執行結果會明確標示示範模式，顯示使用者輸入與生成節點的指令，不會模擬或聲稱為真正的模型回應。範本會取代目前流程，保留前請匯出。僅儲存工作流程，不儲存預覽輸入與結果。
+## 啟用 Google 登入與 Drive／文件
 
-尚未包含帳號、雲端資料庫、多人協作或線上發布。真正的 AI 功能需要後端執行端點與安全的伺服器端金鑰管理，請勿將 API 金鑰放入前端程式碼。
+1. 在 [Google Cloud Console](https://console.cloud.google.com/) 建立或選擇專案，啟用 **Google Drive API**。
+2. 設定 Google Auth Platform 的品牌、對象與 OAuth 同意畫面。在測試模式將自己的 Google 帳號加入測試使用者。
+3. 建立 OAuth 用戶端 ID，類型選擇「網頁應用程式」。將**網站實際來源**（含 `https://`，不含最後的 `/`）加入「已授權的 JavaScript 來源」。網站「連線設定」會直接顯示目前來源。Codespaces 名稱改變後，來源也必須更新。其他反向代理若改寫 Host，請額外設定 `PUBLIC_ORIGIN` 為網站完整來源；Codespaces 來源會依平台環境自動辨識。
+4. 將公開 Client ID 填入 `.env.local` 的 `GOOGLE_CLIENT_ID`。此登入方式不需要 Client Secret，請勿新增到前端。
+5. 重啟網站，在「連線設定」點 Google 登入。
+6. 執行工具後，點「存成 Google 文件」、「存到 Drive」或圖片的「存至 Drive」，在 Google 的授權視窗允許 `drive.file` 存取。每次按儲存會建立一個新檔案；網站不會自行寫入或覆寫現有檔案。
 
-使用 Google Fonts（可用系統字型回退）；應用程式不會將使用者輸入傳送至 AI 或其他外部服務。
+登入的 Google ID token 由伺服器使用官方 `google-auth-library` 驗證，工作階段使用簽署的 HttpOnly、SameSite=Lax cookie（HTTPS 加上 Secure）。設定 Google Client ID 後，AI 端點會要求登入。工作階段為 8 小時，重啟伺服器會失效，需重新登入。
+
+Drive 授權 token 只保留在頁面記憶體，不放入 localStorage。重新整理或到期後重新授權。只要求 `drive.file`，不要求讀取全部 Drive 或 Gmail。儲存檔案會從瀏覽器直接傳至 Google Drive；文件使用 HTML 上傳並轉成 Google 文件。OAuth 應用程式對外使用前，需依 Google 規定完成發布／驗證。
+
+## 工作流程
+
+- 編輯與拖曳節點，增加、刪除、調整生成步驟執行順序。執行以陣列順序為準，移動畫布不改變順序。
+- 生成節點選擇「文案」或「圖片」，依序執行並傳遞前一步內容；圖片可以交給下一個文字節點撰寫圖說。圖文流程保留最後一個文字節點產出的文案及最後一步的圖片，每步完整結果另列在執行紀錄中。
+- 社群文案、社群圖文、旅行與學習四種範本。設定 Gemini 後可用自然語言讓模型設計流程；未設定則依主題選用範本。
+- PNG、JPEG、WebP 參考圖片（5 MB 以下），可用於多模態輸入。點 Gemini 執行時會將輸入、圖片與指令送至 Google，可能計費；錯誤不會自動重試。
+- 可編輯、複製文案，下載 TXT 或 HTML 文件；複製／下載圖片。瀏覽器不支援圖片剪貼簿時會提示改用下載。
+- 可把文字排成 1080×1080 PNG 圖卡。這是本機排版功能，**不是 AI 圖片生成**；過長文字會省略並標示，完整內容請另存文字檔。
+- localStorage 自動儲存單一工作流程，支援 JSON 匯入匯出；選用範本會取代目前流程，需要保留時請先匯出。
+
+## 驗證與正式執行
+
+```sh
+npm test
+npm run test:e2e
+npm run build
+npm start
+```
+
+`npm start` 使用 Node 伺服器提供 `dist` 與 API（預設 5173，可用 `PORT` 修改），不依賴 Vite 開發伺服器。單獨把 `dist` 放到靜態網站服務不會有 AI／登入驗證 API；需部署完整 Node 服務及伺服器環境變數。
+
+端對端測試使用 `/usr/bin/chromium`。其他電腦請調整 `playwright.config.js` 的路徑，或安裝 Playwright 瀏覽器後移除 `executablePath`。測試包括真實瀏覽器剪貼簿、下載、圖片處理、節點操作，以及以明確模擬回應測試 Gemini、Google 登入與 Drive 的成功及失敗路徑。沒有憑證的測試不能證明 Google 真實服務已啟用。
+
+## 尚未涵蓋
+
+這是逐步接近 Opal 的獨立工具，並非 Google Opal 的完整複製。尚無帳號專屬雲端工作流程資料庫、多人協作、公開工具網址、分支／迴圈、網路搜尋或其他第三方工具。登入不會自動將本機流程同步到帳號。伺服器有請求大小限制與同時兩個 AI 任務限制；正式公開部署仍需帳號允許清單、持久配額與用量管理，設定完成前請維持 Codespaces 埠為私人。
+
+應用使用 Google Fonts（有系統字型回退）、Google Identity Services、Gemini API 與 Google Drive API；未執行 AI／儲存時，不會將輸入內容送往 Google AI／Drive。
