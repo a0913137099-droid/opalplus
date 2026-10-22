@@ -5,7 +5,7 @@ import {createApi,executeWorkflow,generate,validateImage} from '../server/api.js
 import {createWorkflow} from '../src/workflow.js';
 const pixel={mimeType:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='};
 const answer=parts=>new Response(JSON.stringify({candidates:[{finishReason:'STOP',content:{parts}}]}),{status:200,headers:{'Content-Type':'application/json'}});
-async function withApi(config,options,callback){const api=createApi(config,options);const server=createServer((req,res)=>api(req,res,()=>{res.statusCode=404;res.end();}));await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://127.0.0.1:${server.address().port}`;try{await callback(url);}finally{await new Promise(r=>server.close(r));}}
+async function withApi(config,options,callback){const api=createApi({AI_ENABLED:'true',AI_IMAGES_ENABLED:'true',...config},options);const server=createServer((req,res)=>api(req,res,()=>{res.statusCode=404;res.end();}));await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://127.0.0.1:${server.address().port}`;try{await callback(url);}finally{await new Promise(r=>server.close(r));}}
 const post=(url,path,body,headers={})=>fetch(url+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:url,...headers},body:JSON.stringify(body)});
 test('sequential real runner passes text and images to the next node',async()=>{
  const f=createWorkflow();f.nodes[1].mode='image';f.nodes.splice(2,0,{...f.nodes[1],id:'caption',title:'撰寫圖說',mode:'text'});
@@ -43,3 +43,17 @@ test('explicit Codespaces origin works behind rewritten Host; arbitrary origins 
  const res=await post(url,'/api/logout',{}, {Origin:'https://my-workspace-5173.app.github.dev'});assert.equal(res.status,200);
  const bad=await post(url,'/api/logout',{}, {Origin:'https://other-workspace-5173.app.github.dev'});assert.equal(bad.status,403);
 }));
+
+test('personal trial blocks AI by default even with a key',async()=>withApi({AI_ENABLED:'false',GEMINI_API_KEY:'x'}, {fetcher:async()=>{throw new Error('must not call');}}, async url=>{
+ const status=await (await fetch(url+'/api/status')).json();assert.equal(status.gemini,false);assert.equal(status.keyConfigured,true);
+ for(const path of ['/api/run','/api/plan'])assert.equal((await post(url,path,{flow:createWorkflow(),input:'hello',idea:'hello'})).status,503);
+}));
+test('image guard and request budget prevent upstream calls',async()=>{
+ let calls=0;await withApi({GEMINI_API_KEY:'x',AI_IMAGES_ENABLED:'false',AI_CALL_LIMIT:'1'},{fetcher:async()=>{calls++;return answer([{text:'done'}]);}},async url=>{
+ const imageFlow=createWorkflow();imageFlow.nodes[1].mode='image';
+ assert.equal((await post(url,'/api/run',{flow:imageFlow,input:'hello'})).status,403);assert.equal(calls,0);
+ assert.equal((await post(url,'/api/run',{flow:createWorkflow(),input:'hello'})).status,200);
+ assert.equal((await post(url,'/api/run',{flow:createWorkflow(),input:'hello'})).status,429);assert.equal(calls,1);
+ assert.equal((await (await fetch(url+'/api/status')).json()).callsUsed,1);
+ });
+});
