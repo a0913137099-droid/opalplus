@@ -16,6 +16,18 @@ export function createWorkerApi(fetcher=fetch){
  const limitedFetch=async(...args)=>{if(callsUsed>=limit)throw new ApiError(429,'目前執行個體的 AI 呼叫上限已用完，請稍後再試。');callsUsed++;return fetcher(...args);};
  try{
  if(request.method==='GET'&&path==='/api/status')return json({gemini:enabled&&!!key,aiEnabled:enabled,keyConfigured:!!key,imagesEnabled,textModel,imageModel,googleClientId:'',account:null,callsUsed,callLimit:limit,hosted:true,keyEntryAvailable:!!env.AI_SESSION_SECRET,sessionConfigured:!!session});
+ if(request.method==='GET'&&path==='/api/models'){
+ if(!key)throw new ApiError(503,'請先儲存 API 金鑰，再讀取模型清單。');
+ const models=[];let token='';
+ for(let page=0;page<5;page++){
+ const url=new URL('https://generativelanguage.googleapis.com/v1beta/models');url.searchParams.set('pageSize','1000');if(token)url.searchParams.set('pageToken',token);
+ let response;try{response=await fetcher(url.toString(),{headers:{'x-goog-api-key':key},signal:AbortSignal.timeout(20000)});}catch{throw new ApiError(504,'讀取模型清單逾時，請稍後再試。');}
+ if(!response.ok)throw new ApiError(response.status===401||response.status===403?response.status:502,response.status===401?'Google 不接受這把金鑰，請確認完整複製。':response.status===403?'Google 拒絕讀取模型，請確認金鑰權限與專案。':response.status===429?'Google 暫時限制請求，請稍後再讀取。':'Google 無法提供模型清單，請稍後再試。');
+ const data=await response.json();for(const model of data.models||[]){if(model.supportedGenerationMethods?.includes('generateContent')&&typeof model.name==='string'){models.push({name:model.name.replace(/^models\//,''),displayName:model.displayName||model.name});}}
+ token=data.nextPageToken||'';if(!token)break;
+ }
+ return json({models,truncated:!!token,notice:'清單列出支援 generateContent 的模型，不保證每個模型有免費額度或支援圖片生成。'});
+ }
  if(request.method!=='POST')throw new ApiError(405,'不支援此操作。');
  if(request.headers.get('Origin')!==new URL(request.url).origin)throw new ApiError(403,'請從目前網站操作。');
  if(path==='/api/connection'){
@@ -25,6 +37,7 @@ export function createWorkerApi(fetcher=fetch){
  const reader=request.body?.getReader();if(!reader)throw new ApiError(400,'缺少設定。');let bytes=0,content='';const decoder=new TextDecoder();while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>4096){await reader.cancel();throw new ApiError(413,'設定資料過大。');}content+=decoder.decode(value,{stream:true});}content+=decoder.decode();
  let settings;try{settings=JSON.parse(content);}catch{throw new ApiError(400,'設定格式不正確。');}
  if(settings.clear)return new Response(JSON.stringify({ok:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':clearSessionCookie()}});
+ if((settings.key===undefined||settings.key==='')&&session)settings.key=session.key;
  if(typeof settings.key!=='string'||settings.key.trim().length<20||settings.key.trim().length>2048||!/^[-_.A-Za-z0-9]+$/.test(settings.key.trim()))throw new ApiError(400,'請貼上完整 Gemini 金鑰，請勿包含引號、空白或換行。支援標準金鑰與含句點的授權金鑰。');
  if(settings.confirm!==true)throw new ApiError(400,'請先確認免費方案與資料傳送。');
  for(const field of ['textModel','imageModel'])if(typeof settings[field]!=='string'||!/^[-_.a-zA-Z0-9]{1,100}$/.test(settings[field]))throw new ApiError(400,'模型名稱格式不正確。');
