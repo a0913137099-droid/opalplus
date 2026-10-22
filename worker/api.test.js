@@ -56,3 +56,11 @@ test('authorization keys with dots and longer payloads can be saved without call
  const response=await api(post('/api/connection',{key,textModel:'gemini-2.5-flash',imageModel:'gemini-2.5-flash-image',confirm:true}),config);assert.equal(response.status,400);
  }assert.equal(calls,0);
 });
+test('model discovery uses saved key, paginates, excludes unsupported models, and never generates',async()=>{
+ const calls=[];const api=createWorkerApi(async(url,options)=>{calls.push({url,options});return Response.json(calls.length===1?{models:[{name:'models/current-text',displayName:'Text',supportedGenerationMethods:['generateContent']},{name:'models/embed',supportedGenerationMethods:['embedContent']}],nextPageToken:'next'}:{models:[{name:'models/current-image',supportedGenerationMethods:['generateContent']}]});});
+ const response=await api(new Request(origin+'/api/models'),env);assert.equal(response.status,200);const data=await response.json();assert.deepEqual(data.models.map(m=>m.name),['current-text','current-image']);assert.equal(calls.length,2);assert.ok(calls.every(c=>c.url.includes('/v1beta/models?')&&!c.url.includes('generateContent')));assert.equal(calls[0].options.headers['x-goog-api-key'],'fake-key');assert.ok(!JSON.stringify(data).includes('fake-key'));
+});
+test('updating models preserves the saved key without requiring re-entry',async()=>{
+ const api=createWorkerApi();const config={AI_SESSION_SECRET:'test-secret'};const settings={key:'AQ.Ab.'+'x'.repeat(40),textModel:'old-text',imageModel:'old-image',confirm:true};
+ const saved=await api(post('/api/connection',settings),config);const request=post('/api/connection',{textModel:'current-text',imageModel:'current-image',confirm:true});request.headers.set('Cookie',saved.headers.get('Set-Cookie').split(';')[0]);const updated=await api(request,config);assert.equal(updated.status,200);const status=await api(new Request(origin+'/api/status',{headers:{Cookie:updated.headers.get('Set-Cookie').split(';')[0]}}),config);const data=await status.json();assert.equal(data.textModel,'current-text');assert.equal(data.keyConfigured,true);
+});
