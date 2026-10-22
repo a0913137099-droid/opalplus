@@ -21,7 +21,7 @@ export async function generate({key, model, parts, image = false, json = false, 
     });
   } catch (error) { if(error instanceof ApiError) throw error; throw new ApiError(504, 'Gemini 連線逾時或無法連線，請稍後重試。'); }
   if (!response.ok) {
-    const messages = {400:'Gemini 無法處理此內容，請調整提示或圖片。',401:'Gemini 金鑰無效，請檢查伺服器設定。',403:'Gemini 存取被拒絕，請確認金鑰權限、地區與服務設定。',404:'找不到設定的模型，請確認模型名稱與帳號可用模型。',429:'Gemini 額度不足或請求太頻繁，請稍後重試或檢查計費設定。'};
+    const messages = {400:'Gemini 無法處理此內容，請調整提示或圖片。',401:'Gemini 金鑰無效，請檢查伺服器設定。',403:'Gemini 存取被拒絕，請確認金鑰權限、地區與服務設定。',404:`找不到模型「${model}」，或此模型不支援目前操作。請到「連線設定」讀取可用模型後重新選擇並儲存。`,429:'Gemini 額度不足或請求太頻繁，請稍後重試或檢查計費設定。'};
     throw new ApiError(response.status >= 500 ? 502 : response.status, messages[response.status] || 'Gemini 服務暫時無法完成請求。');
   }
   let data;
