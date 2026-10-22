@@ -2,6 +2,8 @@ import './style.css';
 import {createWorkflow, templates, validateWorkflow, demoResult, workflowFromPlan} from './workflow.js';
 import {downloadBlob, imageBlob, copyText, copyImage, readImage, textCard, documentHtml} from './assets.js';
 import {prepareGoogle, mountGoogleLogin, saveToDrive, disconnectDrive} from './google.js';
+const hostedDemo=import.meta.env.VITE_DEMO_ONLY==='true';
+const demoService={gemini:false,googleClientId:'',account:null,aiEnabled:false,keyConfigured:false,imagesEnabled:false,callsUsed:0,callLimit:20};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icons={spark:'✳',input:'↓',generate:'✧',output:'▤'};
@@ -31,7 +33,7 @@ let inputValue='';
 function renderPreview(){
  const t=templates[flow.template]||templates.content;
  $('#preview').innerHTML=tab==='app'?`
- <div class="preview-mini-brand">✳ <span>BUILT WITH BLOOM</span><select id="engine" aria-label="執行模式" ${running?'disabled':''}><option value="gemini" ${engine==='gemini'?'selected':''}>Gemini AI${service.gemini?'':'（需設定）'}</option><option value="demo" ${engine==='demo'?'selected':''}>示範模式</option></select></div>
+ <div class="preview-mini-brand">✳ <span>BUILT WITH BLOOM</span><select id="engine" aria-label="執行模式" ${running?'disabled':''}><option value="gemini" ${hostedDemo?'disabled':''} ${engine==='gemini'?'selected':''}>Gemini AI${service.gemini?'':'（需設定）'}</option><option value="demo" ${engine==='demo'?'selected':''}>示範模式</option></select></div>
  <h3>${esc(flow.nodes.at(-1).content)}</h3><p class="preview-description">${esc(flow.nodes[0].content)}</p>
  <label class="sr-only" for="run-input">工具輸入內容</label><textarea id="run-input" placeholder="${esc(t.placeholder)}" maxlength="5000" ${running?'disabled':''}>${esc(inputValue)}</textarea>
  <div class="attachment-row"><label class="upload-btn">＋ 加入參考圖片<input type="file" id="reference-image" accept="image/png,image/jpeg,image/webp" ${running?'disabled':''}></label><small>PNG / JPG / WebP · 5 MB</small></div>
@@ -50,6 +52,7 @@ function renderPreview(){
 }
 function clearOutput(){result='';images=[];steps=[];resultSource='';googleFile=null;}
 async function api(path, body){
+ if(hostedDemo)throw new Error('這是個人示範部署，AI 與 Google 雲端服務未啟用。');
  let response;try{response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(600_000)});}catch{throw new Error('無法連線到伺服器，請確認網站仍在執行。');}
  const data=await response.json();if(!response.ok)throw new Error(data.error||'操作失敗，請稍後重試。');return data;
 }
@@ -57,15 +60,16 @@ function setBusy(busy){running=busy;lockControls(busy);}
 function lockControls(busy){$('.builder').inert=busy;$('.prompt-section').inert=busy;$('.header-right').inert=busy;$('.new-project').disabled=busy;$('#templates-nav').disabled=busy;$('#tip-explore').disabled=busy;}
 function showError(message){const el=$('#run-error');if(el)el.textContent=message;notify(message);}
 async function refreshService(){
+ if(hostedDemo){service={...demoService};engine='demo';updateAccount();renderPreview();$('.prompt-box>div>span').textContent='✧ 個人示範版 · 依主題選用範本';$('.footnote').textContent='個人示範版 · 不呼叫 AI · 流程僅存於目前瀏覽器，請匯出備份。';return;}
  try{const r=await fetch('/api/status');if(!r.ok)throw new Error();service=await r.json();engine='demo';updateAccount();renderPreview();if(service.googleClientId)prepareGoogle(service.googleClientId).catch(()=>{});$('.prompt-box>div>span').textContent=service.gemini?'✧ Gemini · 從描述設計流程':'✧ 未連線 AI · 依主題選用範本';}catch{notify('後端服務未連線，目前可使用示範模式。');}
 }
 function updateAccount(){const account=service.account;$('.avatar').textContent=account?.name?.slice(0,1)||'Y';$('.profile>div').textContent=account?.name||'你的工作空間';const small=document.createElement('small');small.textContent=account?'Google 已登入 · 流程仍存於本機':'個人版 · 本機儲存';$('.profile>div').append(small);}
 async function openConnections(){
- try{const response=await fetch('/api/status');if(response.ok)service=await response.json();}catch{}
+ try{const response=hostedDemo?null:await fetch('/api/status');if(response?.ok)service=await response.json();}catch{}
  $('#connection-dialog').showModal();
  $('#connection-content').innerHTML=`<section class="connection-item"><div><strong>✧ Gemini AI</strong><span class="connection-status ${service.gemini?'connected':''}">${service.gemini?'金鑰已設定・尚需實際執行驗證':service.keyConfigured?'金鑰已設定・AI 呼叫已關閉':'示範模式・不呼叫 AI'}</span></div><p>個人試用版預設使用示範模式，不發送 AI 請求。啟用 AI 前，請確認 Google 專案未啟用付費；本網站無法查核你的帳務狀態。</p><p>金鑰只存於伺服器，不會放進瀏覽器或流程匯出檔案。</p><small>本次啟動已呼叫：${Number(service.callsUsed)||0} / ${Number(service.callLimit)||20} 次（重啟歸零，並非費用上限）<br>圖片生成：${service.imagesEnabled?'已啟用':'預設關閉'}<br>文案模型：${esc(service.textModel||'gemini-2.5-flash')}<br>圖片模型：${esc(service.imageModel||'gemini-2.5-flash-image')}</small></section>
  <section class="connection-item"><div><strong>G Google 帳號</strong><span class="connection-status ${service.account?'connected':''}">${service.account?'已登入':service.googleClientId?'可登入':'需要 OAuth 設定'}</span></div><p>${service.account?esc(service.account.email):'登入後可啟用 AI，並在儲存時授權 Google Drive。只請求存取由這個工具建立或選取的檔案。'}</p><div id="google-signin"></div>${service.account?'<button class="outline-btn" id="logout-google">登出並解除本頁 Drive 連線</button>':''}<p id="google-login-error" role="alert"></p></section>
- <details class="setup-guide" ${!service.gemini||!service.googleClientId?'open':''}><summary>首次啟用指南</summary><ol><li>至 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a> 建立 Gemini API 金鑰。</li><li>在 Codespaces 專案根目錄建立 <code>.env.local</code>，依照 <code>.env.example</code> 填入 <code>GEMINI_API_KEY</code>。僅在確認免費額度及未啟用付費後，加入 <code>AI_ENABLED=true</code>，然後重啟開發伺服器。圖片生成另需 <code>AI_IMAGES_ENABLED=true</code>。不要將金鑰貼在聊天或前端程式碼。</li><li>在 <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud</a> 設定 OAuth 同意畫面（測試階段加入自己的帳號），建立「網頁應用程式」Client ID，將目前網站來源加入「已授權的 JavaScript 來源」：<code class="origin-code">${esc(location.origin)}</code>。</li><li>將 Client ID 填入伺服器 <code>GOOGLE_CLIENT_ID</code>，並啟用 Google Drive API。重新啟動網站後即可登入。公開給其他人使用前，請依 Google 規定發布 OAuth 應用程式。</li></ol><p>Google 登入與 Drive 授權會在 Google 的視窗進行。不要在這裡輸入 Google 密碼。</p></details>`;
+ <details class="setup-guide" ${!hostedDemo&&(!service.gemini||!service.googleClientId)?'open':''}><summary>${hostedDemo?'本機版 AI 啟用指南（此部署僅支援示範）':'首次啟用指南'}</summary><ol><li>至 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a> 建立 Gemini API 金鑰。</li><li>在 Codespaces 專案根目錄建立 <code>.env.local</code>，依照 <code>.env.example</code> 填入 <code>GEMINI_API_KEY</code>。僅在確認免費額度及未啟用付費後，加入 <code>AI_ENABLED=true</code>，然後重啟開發伺服器。圖片生成另需 <code>AI_IMAGES_ENABLED=true</code>。不要將金鑰貼在聊天或前端程式碼。</li><li>在 <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud</a> 設定 OAuth 同意畫面（測試階段加入自己的帳號），建立「網頁應用程式」Client ID，將目前網站來源加入「已授權的 JavaScript 來源」：<code class="origin-code">${esc(location.origin)}</code>。</li><li>將 Client ID 填入伺服器 <code>GOOGLE_CLIENT_ID</code>，並啟用 Google Drive API。重新啟動網站後即可登入。公開給其他人使用前，請依 Google 規定發布 OAuth 應用程式。</li></ol><p>Google 登入與 Drive 授權會在 Google 的視窗進行。不要在這裡輸入 Google 密碼。</p></details>`;
  if(service.googleClientId){
   try{await mountGoogleLogin(service.googleClientId,$('#google-signin'),async credential=>{
    try{const data=await api('/api/login',{credential});service.account=data.account;updateAccount();$('#connection-dialog').close();notify('已登入 Google。儲存至 Drive 時會再請求檔案授權。');}catch(err){$('#google-login-error').textContent=err.message;}
