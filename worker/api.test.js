@@ -46,3 +46,13 @@ test('key setup encrypts the key, activates only this browser, rejects tampering
  const clear=await api(post('/api/connection',{clear:true}),config);assert.match(clear.headers.get('Set-Cookie'),/Max-Age=0/);
  assert.equal((await api(post('/api/connection',{...settings,confirm:false}),config)).status,400);
 });
+
+test('authorization keys with dots and longer payloads can be saved without calling Google',async()=>{
+ let calls=0;const api=createWorkerApi(async()=>{calls++;return answer();});const config={AI_SESSION_SECRET:'test-secret'};
+ for(const key of ['AIza'+'x'.repeat(35),'AQ.Ab.'+'x'.repeat(350)]){
+ const response=await api(post('/api/connection',{key,textModel:'gemini-2.5-flash',imageModel:'gemini-2.5-flash-image',images:false,confirm:true}),config);assert.equal(response.status,200);assert.ok(!response.headers.get('Set-Cookie').includes(key));
+ }
+ for(const key of ['AQ.'+'x'.repeat(20)+' bad','AQ.'+'x'.repeat(2048)]){
+ const response=await api(post('/api/connection',{key,textModel:'gemini-2.5-flash',imageModel:'gemini-2.5-flash-image',confirm:true}),config);assert.equal(response.status,400);
+ }assert.equal(calls,0);
+});
