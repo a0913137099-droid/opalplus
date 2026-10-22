@@ -81,3 +81,7 @@ npm start
 這是逐步接近 Opal 的獨立工具，並非 Google Opal 的完整複製。尚無帳號專屬雲端工作流程資料庫、多人協作、公開工具網址、分支／迴圈、網路搜尋或其他第三方工具。登入不會自動將本機流程同步到帳號。伺服器有請求大小限制與同時兩個 AI 任務限制；正式公開部署仍需帳號允許清單、持久配額與用量管理，設定完成前請維持 Codespaces 埠為私人。
 
 應用使用 Google Fonts（有系統字型回退）、Google Identity Services、Gemini API 與 Google Drive API；未執行 AI／儲存時，不會將輸入內容送往 Google AI／Drive。
+
+## 個人示範部署
+
+`npm run build:demo` 產生可部署的靜態個人示範版。此版本不要求 Node 後端、不發送 AI 或 Google 登入請求，保留流程編輯、範本、示範執行、圖片上傳與本機輸出。AI 選項停用，雲端儲存未啟用；工作流程僅存於瀏覽器，跨裝置請使用 JSON 匯出匯入。`.env.demo` 僅包含公開的示範功能旗標，不得放入金鑰。
