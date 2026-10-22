@@ -38,12 +38,12 @@ export function createWorkerApi(fetcher=fetch){
  if(request.method!=='POST')throw new ApiError(405,'不支援此操作。');
  if(request.headers.get('Origin')!==new URL(request.url).origin)throw new ApiError(403,'請從目前網站操作。');
  if(path==='/api/shared-settings'){
- if(!owner)throw new ApiError(403,'只有網站擁有者可以管理共用試用。');
+ if(!owner)throw new ApiError(403,'只有管理員可以變更服務設定。');
  await setShared(request,env,session,new URL(request.url).searchParams.get('clear')==='1');
  return json({ok:true});
  }
  if(path==='/api/connection'){
- if(publicTrial&&!owner)throw new ApiError(403,'共用試用由網站擁有者管理，訪客無需填入金鑰。');
+ if(publicTrial&&!owner)throw new ApiError(403,'服務設定由管理員維護。');
  if(!env.AI_SESSION_SECRET)throw new ApiError(503,'安全設定尚未完成，暫時無法儲存金鑰。');
  if(Number(request.headers.get('Content-Length')||0)>4096)throw new ApiError(413,'設定資料過大。');
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))throw new ApiError(415,'請使用 JSON 格式。');
@@ -52,14 +52,14 @@ export function createWorkerApi(fetcher=fetch){
  if(settings.clear)return new Response(JSON.stringify({ok:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':clearSessionCookie()}});
  if((settings.key===undefined||settings.key==='')&&session)settings.key=session.key;
  if(typeof settings.key!=='string'||settings.key.trim().length<20||settings.key.trim().length>2048||!/^[-_.A-Za-z0-9]+$/.test(settings.key.trim()))throw new ApiError(400,'請貼上完整 Gemini 金鑰，請勿包含引號、空白或換行。支援標準金鑰與含句點的授權金鑰。');
- if(settings.confirm!==true)throw new ApiError(400,'請先確認免費方案與資料傳送。');
+ if(settings.confirm!==true)throw new ApiError(400,'請先確認專案方案與資料傳送。');
  for(const field of ['textModel','imageModel'])if(typeof settings[field]!=='string'||!/^[-_.a-zA-Z0-9]{1,100}$/.test(settings[field]))throw new ApiError(400,'模型名稱格式不正確。');
  const cookie=await sessionCookie({key:settings.key.trim(),textModel:settings.textModel,imageModel:settings.imageModel,images:settings.images===true},env.AI_SESSION_SECRET);
  return new Response(JSON.stringify({ok:true,message:'設定已儲存，尚未驗證模型額度。'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':cookie}});
  }
  if(!['/api/run','/api/plan'].includes(path))throw new ApiError(404,'此版本未啟用 Google 登入或雲端儲存。');
- if(!key)throw new ApiError(503,usingShared?'網站擁有者尚未開啟共用 AI，請稍後再試。':'尚未設定 Gemini API 金鑰，請至「連線設定」完成設定。');
- if(!enabled)throw new ApiError(503,'AI 尚未啟用。確認 Google 專案的免費額度及未啟用付費後，在伺服器設定 AI_ENABLED=true。');
+ if(!key)throw new ApiError(503,usingShared?'AI 服務暫時未開放，請稍後再試。':'尚未設定 Gemini API 金鑰，請至「連線設定」完成設定。');
+ if(!enabled)throw new ApiError(503,'AI 服務尚未啟用，請聯絡管理員。');
  if(!Number.isSafeInteger(limit)||limit<1||limit>1000)throw new ApiError(503,'AI_CALL_LIMIT 設定不正確。');
  if(active>=1)throw new ApiError(429,'已有流程執行中，請完成後再試。');
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))throw new ApiError(415,'請使用 JSON 格式。');
@@ -69,7 +69,7 @@ export function createWorkerApi(fetcher=fetch){
  let body;try{body=JSON.parse(new TextDecoder().decode(bytes));}catch{throw new ApiError(400,'請求格式不正確。');}
  if(path==='/api/run'){
  validateWorkflow(body.flow);
- if(!imagesEnabled&&body.flow.nodes.some(n=>n.type==='generate'&&n.mode==='image'))throw new ApiError(403,'此流程包含圖片生成，但圖片模型尚未啟用。請先確認模型免費額度，再設定 AI_IMAGES_ENABLED=true；或先使用純文字流程。');
+ if(!imagesEnabled&&body.flow.nodes.some(n=>n.type==='generate'&&n.mode==='image'))throw new ApiError(403,'此流程包含圖片生成，請先在「連線設定」啟用圖片生成並選擇可用模型。');
  active++;
  const options={flow:body.flow,input:body.input,image:body.image,key,textModel,imageModel,fetcher:limitedFetch};
  if(request.headers.get('Accept')==='text/event-stream'){
