@@ -2,8 +2,8 @@ const name='bloom_ai';
 const encode=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
 const decode=text=>Uint8Array.from(atob(text.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
 async function cipher(secret){return crypto.subtle.importKey('raw',await crypto.subtle.digest('SHA-256',new TextEncoder().encode(secret)),{name:'AES-GCM'},false,['encrypt','decrypt']);}
-export async function sessionCookie(settings,secret){
- const iv=crypto.getRandomValues(new Uint8Array(12));const payload=new TextEncoder().encode(JSON.stringify({...settings,expires:Date.now()+8*3600*1000}));
+export async function sessionCookie(settings,secret,durationMs=8*3600*1000){
+ const iv=crypto.getRandomValues(new Uint8Array(12));const payload=new TextEncoder().encode(JSON.stringify({...settings,expires:Date.now()+durationMs}));
  const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv},await cipher(secret),payload);
  return `${name}=${encode(iv)}.${encode(encrypted)}; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800`;
 }

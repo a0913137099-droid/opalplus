@@ -1,3 +1,4 @@
+import {isOwner,loadShared,setShared,reserveSharedCall} from './shared.js';
 import {sessionCookie,clearSessionCookie,readAiSession} from './session.js';
 import {ApiError, executeWorkflow, generate} from './engine.js';
 import {validateWorkflow} from '../frontend/src/workflow.js';
@@ -6,17 +7,23 @@ export function createWorkerApi(fetcher=fetch){
  let callsUsed=0,active=0;
  return async function handle(request,env={}){
  const path=new URL(request.url).pathname;
+ const owner=isOwner(request,env),publicTrial=env.PUBLIC_TRIAL==='true';
  const session=await readAiSession(request,env.AI_SESSION_SECRET);
- if(session)env={...env,GEMINI_API_KEY:session.key,AI_ENABLED:'true',AI_IMAGES_ENABLED:session.images?'true':'false',GEMINI_TEXT_MODEL:session.textModel,GEMINI_IMAGE_MODEL:session.imageModel};
+ const shared=publicTrial?await loadShared(request,env):null;
+ const effective=publicTrial?(owner?(session||shared):shared):session;
+ const usingShared=publicTrial&&!owner;
+ if(effective)env={...env,GEMINI_API_KEY:effective.key,AI_ENABLED:'true',AI_IMAGES_ENABLED:effective.images?'true':'false',GEMINI_TEXT_MODEL:effective.textModel,GEMINI_IMAGE_MODEL:effective.imageModel};
+ if(usingShared&&!shared)env={...env,GEMINI_API_KEY:'',AI_ENABLED:'false'};
  const enabled=env.AI_ENABLED==='true',key=env.GEMINI_API_KEY;
  const imagesEnabled=env.AI_IMAGES_ENABLED==='true';
  const textModel=env.GEMINI_TEXT_MODEL||'gemini-2.5-flash';
  const imageModel=env.GEMINI_IMAGE_MODEL||'gemini-2.5-flash-image';
  const limit=Number(env.AI_CALL_LIMIT||20);
- const limitedFetch=async(...args)=>{if(callsUsed>=limit)throw new ApiError(429,'目前執行個體的 AI 呼叫上限已用完，請稍後再試。');callsUsed++;return fetcher(...args);};
+ const limitedFetch=async(...args)=>{if(!usingShared&&callsUsed>=limit)throw new ApiError(429,'目前執行個體的 AI 呼叫上限已用完，請稍後再試。');if(usingShared)await reserveSharedCall(request,env);callsUsed++;return fetcher(...args);};
  try{
- if(request.method==='GET'&&path==='/api/status')return json({gemini:enabled&&!!key,aiEnabled:enabled,keyConfigured:!!key,imagesEnabled,textModel,imageModel,googleClientId:'',account:null,callsUsed,callLimit:limit,hosted:true,keyEntryAvailable:!!env.AI_SESSION_SECRET,sessionConfigured:!!session});
+ if(request.method==='GET'&&path==='/api/status')return json({gemini:enabled&&!!key,aiEnabled:enabled,keyConfigured:!!key,imagesEnabled,textModel,imageModel,googleClientId:'',account:null,callsUsed,callLimit:limit,hosted:true,keyEntryAvailable:!!env.AI_SESSION_SECRET&&(!publicTrial||owner),sessionConfigured:!!session&&(!publicTrial||owner),publicTrial,canManageShared:owner,sharedActive:!!shared,sharedExpires:shared?.expires||null,sharedDailyLimit:Number(env.SHARED_DAILY_CALL_LIMIT||60),visitorDailyLimit:Number(env.VISITOR_DAILY_CALL_LIMIT||6)});
  if(request.method==='GET'&&path==='/api/models'){
+ if(publicTrial&&!owner)throw new ApiError(403,'訪客無法讀取共用金鑰的模型清單。');
  if(!key)throw new ApiError(503,'請先儲存 API 金鑰，再讀取模型清單。');
  const models=[];let token='';
  for(let page=0;page<5;page++){
@@ -30,7 +37,13 @@ export function createWorkerApi(fetcher=fetch){
  }
  if(request.method!=='POST')throw new ApiError(405,'不支援此操作。');
  if(request.headers.get('Origin')!==new URL(request.url).origin)throw new ApiError(403,'請從目前網站操作。');
+ if(path==='/api/shared-settings'){
+ if(!owner)throw new ApiError(403,'只有網站擁有者可以管理共用試用。');
+ await setShared(request,env,session,new URL(request.url).searchParams.get('clear')==='1');
+ return json({ok:true});
+ }
  if(path==='/api/connection'){
+ if(publicTrial&&!owner)throw new ApiError(403,'共用試用由網站擁有者管理，訪客無需填入金鑰。');
  if(!env.AI_SESSION_SECRET)throw new ApiError(503,'安全設定尚未完成，暫時無法儲存金鑰。');
  if(Number(request.headers.get('Content-Length')||0)>4096)throw new ApiError(413,'設定資料過大。');
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))throw new ApiError(415,'請使用 JSON 格式。');
@@ -45,7 +58,7 @@ export function createWorkerApi(fetcher=fetch){
  return new Response(JSON.stringify({ok:true,message:'設定已儲存，尚未驗證模型額度。'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':cookie}});
  }
  if(!['/api/run','/api/plan'].includes(path))throw new ApiError(404,'此版本未啟用 Google 登入或雲端儲存。');
- if(!key)throw new ApiError(503,'尚未設定 Gemini API 金鑰。請在網站的伺服器環境設定中加入 GEMINI_API_KEY；不要貼到聊天或流程裡。');
+ if(!key)throw new ApiError(503,usingShared?'網站擁有者尚未開啟共用 AI，請稍後再試。':'尚未設定 Gemini API 金鑰，請至「連線設定」完成設定。');
  if(!enabled)throw new ApiError(503,'AI 尚未啟用。確認 Google 專案的免費額度及未啟用付費後，在伺服器設定 AI_ENABLED=true。');
  if(!Number.isSafeInteger(limit)||limit<1||limit>1000)throw new ApiError(503,'AI_CALL_LIMIT 設定不正確。');
  if(active>=1)throw new ApiError(429,'已有流程執行中，請完成後再試。');
