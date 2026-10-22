@@ -25,7 +25,7 @@ export function createWorkerApi(fetcher=fetch){
  const reader=request.body?.getReader();if(!reader)throw new ApiError(400,'缺少設定。');let bytes=0,content='';const decoder=new TextDecoder();while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>4096){await reader.cancel();throw new ApiError(413,'設定資料過大。');}content+=decoder.decode(value,{stream:true});}content+=decoder.decode();
  let settings;try{settings=JSON.parse(content);}catch{throw new ApiError(400,'設定格式不正確。');}
  if(settings.clear)return new Response(JSON.stringify({ok:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':clearSessionCookie()}});
- if(typeof settings.key!=='string'||settings.key.trim().length<20||settings.key.trim().length>256||!/^[-_A-Za-z0-9]+$/.test(settings.key.trim()))throw new ApiError(400,'請填入有效格式的 Gemini API 金鑰。');
+ if(typeof settings.key!=='string'||settings.key.trim().length<20||settings.key.trim().length>2048||!/^[-_.A-Za-z0-9]+$/.test(settings.key.trim()))throw new ApiError(400,'請貼上完整 Gemini 金鑰，請勿包含引號、空白或換行。支援標準金鑰與含句點的授權金鑰。');
  if(settings.confirm!==true)throw new ApiError(400,'請先確認免費方案與資料傳送。');
  for(const field of ['textModel','imageModel'])if(typeof settings[field]!=='string'||!/^[-_.a-zA-Z0-9]{1,100}$/.test(settings[field]))throw new ApiError(400,'模型名稱格式不正確。');
  const cookie=await sessionCookie({key:settings.key.trim(),textModel:settings.textModel,imageModel:settings.imageModel,images:settings.images===true},env.AI_SESSION_SECRET);
