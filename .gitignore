@@ -6,3 +6,10 @@ playwright-report/
 .env
 .env.*
 !.env.example
+!.env.demo
+
+.next/
+.sites-runtime/
+.wrangler/
+.openai/.runtime/
+public/editor/

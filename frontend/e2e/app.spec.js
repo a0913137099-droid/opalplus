@@ -37,7 +37,7 @@ test('Gemini results, image mode, planner, and API failure are reflected honestl
  let call;
  await page.route('**/api/run',async route=>{call=route.request().postDataJSON();await route.fulfill({json:{text:'台南書店的午後，讓閱讀慢下來。',images:[],steps:[{id:'generate',title:'讓靈感發芽',text:'完成的貼文',images:[],durationMs:800}],source:'gemini'}});});
  await page.route('**/api/plan',route=>route.fulfill({json:{plan:{name:'書店海報助手',description:'建立海報與圖說',steps:[{title:'生成海報',content:'畫一張書店插畫',mode:'image'}]}}}));
- await page.goto('/');await expect(page.locator('#engine')).toHaveValue('gemini');
+ await page.goto('/');await expect(page.locator('#engine')).toHaveValue('demo');await page.locator('#engine').selectOption('gemini');
  await page.locator('#idea').fill('做書店海報');await page.locator('#build-idea').click();await expect(page.locator('h1')).toHaveText('書店海報助手');await expect(page.locator('.node-generate')).toContainText('Gemini 圖片');
  await page.locator('#run-input').fill('一間台南書店');await page.locator('#run').click();await expect(page.locator('#result-text')).toHaveValue('台南書店的午後，讓閱讀慢下來。');expect(call.flow.nodes[1].mode).toBe('image');
  await page.locator('.run-steps summary').click();await expect(page.locator('.run-steps pre')).toContainText('完成的貼文');

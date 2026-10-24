@@ -22,7 +22,7 @@ export async function generate({key, model, parts, image = false, json = false, 
       body: JSON.stringify({contents:[{role:'user',parts}], generationConfig: image ? {responseModalities:['TEXT','IMAGE']} : json ? {responseMimeType:'application/json'} : {}}),
       signal: AbortSignal.timeout(90_000)
     });
-  } catch { throw new ApiError(504, 'Gemini 連線逾時或無法連線，請稍後重試。'); }
+  } catch (error) { if(error instanceof ApiError) throw error; throw new ApiError(504, 'Gemini 連線逾時或無法連線，請稍後重試。'); }
   if (!response.ok) {
     const messages = {400:'Gemini 無法處理此內容，請調整提示或圖片。',401:'Gemini 金鑰無效，請檢查伺服器設定。',403:'Gemini 存取被拒絕，請確認金鑰權限、地區與服務設定。',404:'找不到設定的模型，請確認模型名稱與帳號可用模型。',429:'Gemini 額度不足或請求太頻繁，請稍後重試或檢查計費設定。'};
     throw new ApiError(response.status >= 500 ? 502 : response.status, messages[response.status] || 'Gemini 服務暫時無法完成請求。');
@@ -76,7 +76,16 @@ async function readBody(req) {
   try {return JSON.parse(Buffer.concat(chunks).toString());} catch {throw new ApiError(400,'請求格式不正確。');}
 }
 export function createApi(config, {fetcher=fetch, verifyIdentity}={}) {
-  let active=0;
+  let active=0, callsUsed=0;
+  const aiEnabled=config.AI_ENABLED==='true';
+  const imagesEnabled=config.AI_IMAGES_ENABLED==='true';
+  const callLimit=Number(config.AI_CALL_LIMIT || 20);
+  if(!Number.isSafeInteger(callLimit) || callLimit<1 || callLimit>1000) throw new Error('AI_CALL_LIMIT 必須是 1 至 1000 的整數。');
+  const limitedFetcher=async (...args)=>{
+    if(callsUsed>=callLimit) throw new ApiError(429,'本次伺服器啟動的 AI 呼叫上限已用完。示範模式仍可使用。');
+    callsUsed++;
+    return fetcher(...args);
+  };
   const oauth=new OAuth2Client(config.GOOGLE_CLIENT_ID);
   const key=config.GEMINI_API_KEY || config.GOOGLE_API_KEY;
   const textModel=config.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
@@ -86,7 +95,7 @@ export function createApi(config, {fetcher=fetch, verifyIdentity}={}) {
     res.setHeader('Content-Type','application/json; charset=utf-8');res.setHeader('Cache-Control','no-store');
     const send=(status,value)=>{res.statusCode=status;res.end(JSON.stringify(value));};
     try {
-      if(req.method==='GET' && path==='/api/status') return send(200,{gemini:!!key,googleClientId:config.GOOGLE_CLIENT_ID||'',textModel,imageModel,account:readSession(req)});
+      if(req.method==='GET' && path==='/api/status') return send(200,{gemini:!!key && aiEnabled,aiEnabled,keyConfigured:!!key,imagesEnabled,callsUsed,callLimit,googleClientId:config.GOOGLE_CLIENT_ID||'',textModel,imageModel,account:readSession(req)});
       if(req.method!=='POST') throw new ApiError(405,'不支援此操作。');
       const origin=req.headers.origin;
       const publicOrigin=config.PUBLIC_ORIGIN || (config.CODESPACE_NAME ? `https://${config.CODESPACE_NAME}-${config.PORT||5173}.${config.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN||'app.github.dev'}` : '');
@@ -105,14 +114,16 @@ export function createApi(config, {fetcher=fetch, verifyIdentity}={}) {
         return send(200,{account});
       }
       if(!['/api/run','/api/plan'].includes(path)) throw new ApiError(404,'找不到此操作。');
+      if(!aiEnabled) throw new ApiError(503,'AI 呼叫已關閉，目前可免費使用本機示範。確認 Google 專案未啟用付費後，再設定 AI_ENABLED=true。');
       if(!key) throw new ApiError(503,'尚未設定 Gemini API 金鑰。請開啟「連線設定」查看啟用方式。');
       if(config.GOOGLE_CLIENT_ID && !readSession(req)) throw new ApiError(401,'請先登入 Google 再使用 AI 功能。');
       if(active>=2) throw new ApiError(429,'目前有工作執行中，請稍後再試。');
       active++;
       try {
-        if(path==='/api/run') return send(200,await executeWorkflow({flow:body.flow,input:body.input,image:body.image,key,textModel,imageModel,fetcher}));
+        if(path==='/api/run' && !imagesEnabled && body.flow?.nodes?.some(n=>n.type==='generate' && n.mode==='image')) throw new ApiError(403,'圖片生成尚未啟用。請先使用文字流程，或切換示範模式。');
+        if(path==='/api/run') return send(200,await executeWorkflow({flow:body.flow,input:body.input,image:body.image,key,textModel,imageModel,fetcher:limitedFetcher}));
         if(typeof body.idea!=='string' || !body.idea.trim() || body.idea.length>1000) throw new ApiError(400,'請描述 1 至 1000 字的工具需求。');
-        const answer=await generate({key,model:textModel,json:true,fetcher,parts:[{text:`將需求設計成一個簡潔的工作流程，回傳 JSON，schema: {"name":"名稱","description":"簡介","steps":[{"title":"步驟名稱","content":"給 AI 的完整指令","mode":"text 或 image"}]}。一到四個步驟，全部使用繁體中文，只有需求確實需要產生圖片時才用 image。需求：${body.idea}`} ]});
+        const answer=await generate({key,model:textModel,json:true,fetcher:limitedFetcher,parts:[{text:`將需求設計成一個簡潔的工作流程，回傳 JSON，schema: {"name":"名稱","description":"簡介","steps":[{"title":"步驟名稱","content":"給 AI 的完整指令","mode":"text 或 image"}]}。一到四個步驟，全部使用繁體中文，只有需求確實需要產生圖片時才用 image。需求：${body.idea}`} ]});
         let plan;try{plan=JSON.parse(answer.text);}catch{throw new ApiError(502,'模型傳回的流程格式不正確，請重試。');}
         if(!plan || typeof plan.name!=='string' || !plan.name.trim() || plan.name.length>100 || typeof plan.description!=='string' || plan.description.length>500 || !Array.isArray(plan.steps) || plan.steps.length<1 || plan.steps.length>4 || plan.steps.some(s=>!s || typeof s.title!=='string' || !s.title.trim() || s.title.length>100 || typeof s.content!=='string' || !s.content.trim() || s.content.length>5000 || !['text','image'].includes(s.mode))) throw new ApiError(502,'模型傳回的流程不符合格式，請重試。');
         return send(200,{plan});
